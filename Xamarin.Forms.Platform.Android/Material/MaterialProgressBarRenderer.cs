@@ -4,6 +4,7 @@ using System.ComponentModel;
 using Android.Content;
 using Android.Content.Res;
 using Android.Graphics;
+using Android.Graphics.Drawables;
 using Android.Support.V4.View;
 using Android.Views;
 using Xamarin.Forms;
@@ -13,13 +14,14 @@ using AColor = Android.Graphics.Color;
 using AProgressBar = Android.Widget.ProgressBar;
 using AView = Android.Views.View;
 
-[assembly: ExportRenderer(typeof(Xamarin.Forms.ProgressBar), typeof(MaterialProgressBarRenderer), new[] { typeof(VisualRendererMarker.Material) })]
+[assembly: ExportRenderer(typeof(ProgressBar), typeof(MaterialProgressBarRenderer), new[] { typeof(VisualRendererMarker.Material) })]
 
 namespace Xamarin.Forms.Platform.Android.Material
 {
 	public class MaterialProgressBarRenderer : AProgressBar,
 		IVisualElementRenderer, IViewRenderer, ITabStop
 	{
+		const float BackgroundAlpha = 0.3f;
 		const int MaximumValue = 10000;
 
 		int? _defaultLabelFor;
@@ -27,6 +29,9 @@ namespace Xamarin.Forms.Platform.Android.Material
 		bool _disposed;
 
 		ProgressBar _element;
+
+		AColor _defaultPrimaryColor => MaterialColors.Light.PrimaryColor;
+		AColor _defaultBackgroundColor => _defaultPrimaryColor.WithAlpha(BackgroundAlpha);
 
 		VisualElementTracker _visualElementTracker;
 		VisualElementRenderer _visualElementRenderer;
@@ -122,7 +127,6 @@ namespace Xamarin.Forms.Platform.Android.Material
 		protected virtual void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
 			ElementPropertyChanged?.Invoke(this, e);
-
 			if (e.PropertyName == ProgressBar.ProgressProperty.PropertyName)
 				UpdateProgress();
 			else if (e.PropertyName == ProgressBar.ProgressColorProperty.PropertyName || e.PropertyName == VisualElement.BackgroundColorProperty.PropertyName)
@@ -142,51 +146,11 @@ namespace Xamarin.Forms.Platform.Android.Material
 			if (Element == null || Control == null)
 				return;
 
-			Color progressColor = Element.ProgressColor;
-			Color backgroundColor = Element.BackgroundColor;
-
-			var defaultProgress = MaterialColors.Light.PrimaryColor;
-
-			if (progressColor.IsDefault && backgroundColor.IsDefault)
-			{
-				// reset everything to defaults
-				ProgressTintList = ColorStateList.ValueOf(defaultProgress);
-				ProgressBackgroundTintList = ColorStateList.ValueOf(defaultProgress);
-				ProgressBackgroundTintMode = PorterDuff.Mode.SrcIn;
-			}
-			else if (progressColor.IsDefault && !backgroundColor.IsDefault)
-			{
-				// handle the case where only the background is set
-				var background = backgroundColor.ToAndroid();
-
-				// TODO: Potentially override primary color to match material design.
-				ProgressTintList = ColorStateList.ValueOf(defaultProgress);
-				ProgressBackgroundTintList = ColorStateList.ValueOf(background);
-
-				// TODO: Potentially override background alpha to match material design.
-				ProgressBackgroundTintMode = PorterDuff.Mode.SrcOver;
-			}
-			else if (!progressColor.IsDefault && backgroundColor.IsDefault)
-			{
-				// handle the case where only the progress is set
-				var progress = progressColor.ToAndroid();
-
-				ProgressTintList = ColorStateList.ValueOf(progress);
-				ProgressBackgroundTintList = ColorStateList.ValueOf(progress);
-				ProgressBackgroundTintMode = PorterDuff.Mode.SrcIn;
-			}
-			else
-			{
-				// handle the case where both are set
-				var background = backgroundColor.ToAndroid();
-				var progress = progressColor.ToAndroid();
-
-				ProgressTintList = ColorStateList.ValueOf(progress);
-				ProgressBackgroundTintList = ColorStateList.ValueOf(background);
-
-				// TODO: Potentially override alpha to match material design.
-				ProgressBackgroundTintMode = PorterDuff.Mode.SrcOver;
-			}
+			var primary = Element.ProgressColor.IsDefault ? _defaultPrimaryColor : Element.ProgressColor.ToAndroid();
+			ProgressTintList = ColorStateList.ValueOf(primary);
+			var background = Element.BackgroundColor.IsDefault ? _defaultBackgroundColor : Element.BackgroundColor.ToAndroid();
+			ProgressBackgroundTintList = ColorStateList.ValueOf(background);
+			ProgressBackgroundTintMode = PorterDuff.Mode.SrcIn;
 		}
 
 		void UpdateProgress()
