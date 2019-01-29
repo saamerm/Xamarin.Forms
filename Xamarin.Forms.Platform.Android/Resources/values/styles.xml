@@ -1,7 +1,12 @@
 ﻿<?xml version="1.0" encoding="UTF-8" ?>
 <resources>
+
+  <attr name="materialOutlinedButtonStyle" format="reference"/>
+
+  <!-- Material Base Theme -->
   <style name="XamarinFormsMaterialTheme" parent="Theme.MaterialComponents.Light.DarkActionBar">
     <item name="materialButtonStyle">@style/XamarinFormsMaterialButton</item>
+    <item name="materialOutlinedButtonStyle">@style/XamarinFormsMaterialButtonOutlined</item>
   </style>
   <style name="XamarinFormsMaterialProgressBarHorizontal" parent="android:Widget.ProgressBar.Horizontal">
     <item name="android:indeterminateOnly">false</item>
@@ -11,7 +16,16 @@
   <style name="XamarinFormsMaterialProgressBarCircular" parent="Widget.AppCompat.ProgressBar">
     <item name="android:background">@drawable/MaterialActivityIndicatorBackgroud</item>
   </style>
+
+  <!-- Material Buttons (All Styles) -->
   <style name="XamarinFormsMaterialButton" parent="Widget.MaterialComponents.Button">
+    <item name="android:insetTop">0dp</item>
+    <item name="android:insetBottom">0dp</item>
+    <item name="android:minHeight">36dp</item>
+    <item name="android:paddingTop">8dp</item>
+    <item name="android:paddingBottom">8dp</item>
+  </style>
+  <style name="XamarinFormsMaterialButtonOutlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
     <item name="android:insetTop">0dp</item>
     <item name="android:insetBottom">0dp</item>
     <item name="android:minHeight">36dp</item>
