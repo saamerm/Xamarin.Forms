@@ -28,6 +28,11 @@ namespace Xamarin.Forms.Controls
 				label.Text = "tb2";
 			}, ToolbarItemOrder.Primary);
 			tb2.AutomationId = "toolbaritem_primary2";
+			var tb6 = new ToolbarItem("tb6 long long text", null, () =>
+			{
+				label.Text = "tb6";
+			}, ToolbarItemOrder.Primary);
+			tb6.AutomationId = "toolbaritem_primary6";
 
 			var tb3 = new ToolbarItem("tb3", "bank.png", () =>
 			{
@@ -41,12 +46,12 @@ namespace Xamarin.Forms.Controls
 			tb4.Text = "tb4";
 			tb4.Order = ToolbarItemOrder.Secondary;
 			tb4.Command = command;
-			tb4.Icon = "coffee";
+			tb4.IconImageSource = "coffee";
 			tb4.AutomationId = "toolbaritem_secondary2";
 
 			var tb5 = new ToolbarItem();
 			tb5.Text = "tb5";
-			tb5.Icon = "bank.png";
+			tb5.IconImageSource = "bank.png";
 			tb5.Order = ToolbarItemOrder.Secondary;
 			tb5.Command = new Command(async () => {
 				await Navigation.PushAsync(new ToolbarItems());
@@ -58,6 +63,7 @@ namespace Xamarin.Forms.Controls
 			ToolbarItems.Add(tb3);
 			ToolbarItems.Add(tb4);
 			ToolbarItems.Add(tb5);
+			ToolbarItems.Add(tb6);
 
 			Content = new StackLayout
 			{

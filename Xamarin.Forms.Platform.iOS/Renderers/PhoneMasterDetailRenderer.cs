@@ -26,8 +26,9 @@ namespace Xamarin.Forms.Platform.iOS
 		VisualElementTracker _tracker;
 
 		Page Page => Element as Page;
-		
 
+
+		[Preserve(Conditional = true)]
 		public PhoneMasterDetailRenderer()
 		{
 		}
@@ -219,7 +220,7 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void HandleMasterPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
-			if (e.PropertyName == Page.IconProperty.PropertyName || e.PropertyName == Page.TitleProperty.PropertyName)
+			if (e.PropertyName == Page.IconImageSourceProperty.PropertyName || e.PropertyName == Page.TitleProperty.PropertyName)
 				UpdateLeftBarButton();
 		}
 
@@ -233,7 +234,7 @@ namespace Xamarin.Forms.Platform.iOS
 				UpdatePanGesture();
 			else if (e.PropertyName == VisualElement.BackgroundColorProperty.PropertyName)
 				UpdateBackground();
-			else if (e.PropertyName == Page.BackgroundImageProperty.PropertyName)
+			else if (e.PropertyName == Page.BackgroundImageSourceProperty.PropertyName)
 				UpdateBackground();
 		}
 
@@ -301,12 +302,15 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void UpdateBackground()
 		{
-			if (!string.IsNullOrEmpty(((Page)Element).BackgroundImage))
-				View.BackgroundColor = UIColor.FromPatternImage(UIImage.FromBundle(((Page)Element).BackgroundImage));
-			else if (Element.BackgroundColor == Color.Default)
-				View.BackgroundColor = UIColor.White;
-			else
-				View.BackgroundColor = Element.BackgroundColor.ToUIColor();
+			_ = this.ApplyNativeImageAsync(Page.BackgroundImageSourceProperty, bgImage =>
+			{
+				if (bgImage != null)
+					View.BackgroundColor = UIColor.FromPatternImage(bgImage);
+				else if (Element.BackgroundColor == Color.Default)
+					View.BackgroundColor = UIColor.White;
+				else
+					View.BackgroundColor = Element.BackgroundColor.ToUIColor();
+			});
 		}
 
 		void UpdateMasterDetailContainers()
@@ -325,13 +329,19 @@ namespace Xamarin.Forms.Platform.iOS
 
 			((MasterDetailPage)Element).Master.PropertyChanged += HandleMasterPropertyChanged;
 
-			_masterController.View.AddSubview(masterRenderer.NativeView);
+			UIView masterView = masterRenderer.NativeView;
+
+			_masterController.View.AddSubview(masterView);
 			_masterController.AddChildViewController(masterRenderer.ViewController);
 
-			_detailController.View.AddSubview(detailRenderer.NativeView);
+			UIView detailView = detailRenderer.NativeView;
+
+			_detailController.View.AddSubview(detailView);
 			_detailController.AddChildViewController(detailRenderer.ViewController);
 
 			SetNeedsStatusBarAppearanceUpdate();
+			if (Forms.RespondsToSetNeedsUpdateOfHomeIndicatorAutoHidden)
+				SetNeedsUpdateOfHomeIndicatorAutoHidden();
 		}
 
 		void UpdateLeftBarButton()
@@ -355,6 +365,17 @@ namespace Xamarin.Forms.Platform.iOS
 				return base.ChildViewControllerForStatusBarHidden();
 		}
 
+		public override UIViewController ChildViewControllerForHomeIndicatorAutoHidden
+		{
+			get
+			{
+				if (((MasterDetailPage)Element).Detail != null)
+					return (UIViewController)Platform.GetRenderer(((MasterDetailPage)Element).Detail);
+				else
+					return base.ChildViewControllerForStatusBarHidden();
+			}
+		}
+
 		void UpdatePanGesture()
 		{
 			var model = (MasterDetailPage)Element;
@@ -371,7 +392,11 @@ namespace Xamarin.Forms.Platform.iOS
 				return;
 			}
 
-			UITouchEventArgs shouldReceive = (g, t) => !(t.View is UISlider);
+   			bool shouldReceive(UIGestureRecognizer g, UITouch t)
+			{
+				return !(t.View is UISlider) && !(IsSwipeView(t.View));
+			}
+   
 			var center = new PointF();
 			_panGesture = new UIPanGestureRecognizer(g =>
 			{
@@ -421,9 +446,21 @@ namespace Xamarin.Forms.Platform.iOS
 						break;
 				}
 			});
+			_panGesture.CancelsTouchesInView = false;
 			_panGesture.ShouldReceiveTouch = shouldReceive;
 			_panGesture.MaximumNumberOfTouches = 2;
 			View.AddGestureRecognizer(_panGesture);
+		}
+
+		bool IsSwipeView(UIView view)
+		{
+			if (view == null)
+				return false;
+
+			if (view.Superview is SwipeViewRenderer)
+				return true;
+
+			return IsSwipeView(view.Superview);
 		}
 
 		class ChildViewController : UIViewController

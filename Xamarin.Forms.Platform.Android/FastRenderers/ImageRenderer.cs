@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using Android.Content;
@@ -11,7 +11,8 @@ using Android.Support.V4.View;
 
 namespace Xamarin.Forms.Platform.Android.FastRenderers
 {
-	internal sealed class ImageRenderer : AImageView, IVisualElementRenderer, IImageRendererController, IViewRenderer, ITabStop
+	public class ImageRenderer : AImageView, IVisualElementRenderer, IImageRendererController, IViewRenderer, ITabStop,
+		ILayoutChanges
 	{
 		bool _disposed;
 		Image _element;
@@ -20,8 +21,9 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		VisualElementTracker _visualElementTracker;
 		VisualElementRenderer _visualElementRenderer;
 		readonly MotionEventHelper _motionEventHelper = new MotionEventHelper();
+		IFormsAnimationDrawable _formsAnimationDrawable;
 
-		bool IImageRendererController.IsDisposed => _disposed;
+		bool IImageRendererController.IsDisposed => _disposed || !Control.IsAlive();
 		protected override void Dispose(bool disposing)
 		{
 			if (_disposed)
@@ -31,6 +33,11 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 			if (disposing)
 			{
+				if (_element != null)
+				{
+					_element.PropertyChanged -= OnElementPropertyChanged;
+				}
+
 				ImageElementManager.Dispose(this);
 				BackgroundManager.Dispose(this);
 
@@ -48,8 +55,6 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 				if (_element != null)
 				{
-					_element.PropertyChanged -= OnElementPropertyChanged;
-
 					if (Platform.GetRenderer(_element) == this)
 						_element.ClearValue(Platform.RendererProperty);
 				}
@@ -69,7 +74,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			base.Invalidate();
 		}
 
-		void OnElementChanged(ElementChangedEventArgs<Image> e)
+		protected virtual void OnElementChanged(ElementChangedEventArgs<Image> e)
 		{
 			this.EnsureId();
 			ElementChanged?.Invoke(this, new VisualElementChangedEventArgs(e.OldElement, e.NewElement));
@@ -165,8 +170,21 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		ViewGroup IVisualElementRenderer.ViewGroup => null;
 
 		void IImageRendererController.SkipInvalidate() => _skipInvalidate = true;
+		void IImageRendererController.SetFormsAnimationDrawable(IFormsAnimationDrawable value)
+		{
+			if(_formsAnimationDrawable != null)
+				_formsAnimationDrawable.AnimationStopped -= OnAnimationStopped;
 
-		AImageView Control => this;
+			_formsAnimationDrawable = value;
+			if (_formsAnimationDrawable != null)
+				_formsAnimationDrawable.AnimationStopped += OnAnimationStopped;
+		}
+
+		void OnAnimationStopped(object sender, FormsAnimationDrawableStateEventArgs e) =>
+			ImageElementManager.OnAnimationStopped(Element, e);
+
+		protected AImageView Control => this;
+		protected Image Element => _element;
 
 		public event EventHandler<VisualElementChangedEventArgs> ElementChanged;
 		public event EventHandler<PropertyChangedEventArgs> ElementPropertyChanged;
@@ -181,7 +199,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		{
 		}
 
-		void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
+		protected virtual void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
 			ElementPropertyChanged?.Invoke(this, e);
 		}

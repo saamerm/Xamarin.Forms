@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using Android.Content;
 using Xamarin.Forms.Internals;
 using Android.Views;
 using AView = Android.Views.View;
-using System.Linq;
 
 namespace Xamarin.Forms.Platform.Android
 {
@@ -38,6 +36,21 @@ namespace Xamarin.Forms.Platform.Android
 
 			_renderer = renderer;
 			_renderer.ElementChanged += OnElementChanged;
+
+			if (renderer.View is ILayoutChanges layout)
+				layout.LayoutChange += OnInitialLayoutChange;
+		}
+
+		void OnInitialLayoutChange(object sender, AView.LayoutChangeEventArgs e)
+		{
+			// this is used to adjust any relative elevations on the child elements that still need to settle
+			// the default elevation is set on Button after it's already added to the view hierarchy
+			// but this appears to only be the case when the app first starts
+
+			if (sender is ILayoutChanges layout)
+				layout.LayoutChange -= OnInitialLayoutChange;
+
+			EnsureChildOrder(true);
 		}
 
 		void OnElementChanged(object sender, VisualElementChangedEventArgs e)
@@ -58,6 +71,20 @@ namespace Xamarin.Forms.Platform.Android
 
 			if (_renderer != null)
 			{
+				_renderer.ElementChanged -= OnElementChanged;
+
+				if (_renderer.Element != null)
+				{
+					_renderer.Element.ChildAdded -= _childAddedHandler;
+					_renderer.Element.ChildRemoved -= _childRemovedHandler;
+					_renderer.Element.ChildrenReordered -= _childReorderedHandler;
+				}
+
+				if (_renderer.View is ILayoutChanges layout)
+					layout.LayoutChange -= OnInitialLayoutChange;
+
+				SetElement(_element, null);
+
 				if (_childViews != null)
 				{
 					_childViews.Clear();
@@ -73,18 +100,8 @@ namespace Xamarin.Forms.Platform.Android
 					_childPackagers = null;
 				}
 
-				_renderer.ElementChanged -= OnElementChanged;
-				if (_renderer.Element != null)
-				{
-					_renderer.Element.ChildAdded -= _childAddedHandler;
-					_renderer.Element.ChildRemoved -= _childRemovedHandler;
-
-					_renderer.Element.ChildrenReordered -= _childReorderedHandler;
-				}
 				_renderer = null;
 			}
-
-			_element = null;
 		}
 
 		public void Load()
@@ -142,8 +159,12 @@ namespace Xamarin.Forms.Platform.Android
 				Performance.Stop(reference);
 			}
 		}
-		void EnsureChildOrder()
+
+		void EnsureChildOrder() => EnsureChildOrder(false);
+
+		void EnsureChildOrder(bool onlyUpdateElevations)
 		{
+			float elevationToSet = 0;
 			for (var i = 0; i < ElementController.LogicalChildren.Count; i++)
 			{
 				Element child = ElementController.LogicalChildren[i];
@@ -152,7 +173,24 @@ namespace Xamarin.Forms.Platform.Android
 				{
 					IVisualElementRenderer r = Platform.GetRenderer(element);
 					if (r != null)
-						(_renderer.View as ViewGroup)?.BringChildToFront(r.View);
+					{
+						if (Forms.IsLollipopOrNewer)
+						{
+							var elevation = ElevationHelper.GetElevation(r.View) ?? 0;
+							var elementElevation = ElevationHelper.GetElevation(element, r.View.Context);
+
+							if (elementElevation == null)
+							{
+								if (elevation > elevationToSet)
+									elevationToSet = elevation;
+
+								r.View.Elevation = elevationToSet;
+							}
+						}
+
+						if (!onlyUpdateElevations)
+							(_renderer.View as ViewGroup)?.BringChildToFront(r.View);
+					}
 				}
 			}
 		}
@@ -163,7 +201,33 @@ namespace Xamarin.Forms.Platform.Android
 			if (view != null)
 				AddChild(view);
 
-			if (ElementController.LogicalChildren.LastOrDefault() != view)
+			int itemCount = ElementController.LogicalChildren.Count;
+			if (itemCount <= 1)
+				return;
+
+			Element lastChild = ElementController.LogicalChildren[itemCount - 1];
+
+			if (lastChild != view)
+			{
+				EnsureChildOrder();
+				return;
+			}
+
+			if (!Forms.IsLollipopOrNewer)
+				return;
+
+			Element previousChild = ElementController.LogicalChildren[itemCount - 2];
+
+			IVisualElementRenderer lastRenderer = null;
+			IVisualElementRenderer previousRenderer = null;
+
+			if (lastChild is VisualElement last)
+				lastRenderer = Platform.GetRenderer(last);
+
+			if (previousChild is VisualElement previous)
+				previousRenderer = Platform.GetRenderer(previous);
+
+			if (ElevationHelper.GetElevation(lastRenderer?.View) < ElevationHelper.GetElevation(previousRenderer?.View))
 				EnsureChildOrder();
 		}
 
@@ -187,7 +251,7 @@ namespace Xamarin.Forms.Platform.Android
 			IVisualElementRenderer renderer = Platform.GetRenderer(view);
 			if (renderer == null) // child is itself a compressed layout
 			{
-				if (_childPackagers != null && _childPackagers.TryGetValue (view, out VisualElementPackager packager))
+				if (_childPackagers != null && _childPackagers.TryGetValue(view, out VisualElementPackager packager))
 				{
 					foreach (var child in view.LogicalChildren)
 					{
@@ -213,14 +277,21 @@ namespace Xamarin.Forms.Platform.Android
 			ReadOnlyCollection<Element> newChildren = null, oldChildren = null;
 
 			RendererPool pool = null;
+			
 			if (oldElement != null)
 			{
+				oldElement.ChildAdded -= _childAddedHandler;
+				oldElement.ChildRemoved -= _childRemovedHandler;
+				oldElement.ChildrenReordered -= _childReorderedHandler;
+
+				oldChildren = ((IElementController)oldElement).LogicalChildren;
+
 				if (newElement != null)
 				{
 					sameChildrenTypes = true;
 
-					oldChildren = ((IElementController)oldElement).LogicalChildren;
 					newChildren = ((IElementController)newElement).LogicalChildren;
+					
 					if (oldChildren.Count == newChildren.Count)
 					{
 						for (var i = 0; i < oldChildren.Count; i++)
@@ -235,11 +306,13 @@ namespace Xamarin.Forms.Platform.Android
 					else
 						sameChildrenTypes = false;
 				}
-
-				oldElement.ChildAdded -= _childAddedHandler;
-				oldElement.ChildRemoved -= _childRemovedHandler;
-
-				oldElement.ChildrenReordered -= _childReorderedHandler;
+				else
+				{
+					for (var i = 0; i < oldChildren.Count; i++)
+					{
+						RemoveChild((VisualElement)oldChildren[i]);
+					}
+				}
 
 				if (!sameChildrenTypes)
 				{
@@ -252,6 +325,7 @@ namespace Xamarin.Forms.Platform.Android
 			if (newElement != null)
 			{
 				Performance.Start(reference, "Setup");
+
 				newElement.ChildAdded += _childAddedHandler;
 				newElement.ChildRemoved += _childRemovedHandler;
 
@@ -280,4 +354,3 @@ namespace Xamarin.Forms.Platform.Android
 		}
 	}
 }
-

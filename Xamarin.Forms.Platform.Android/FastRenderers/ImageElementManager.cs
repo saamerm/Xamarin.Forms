@@ -9,97 +9,167 @@ using AViewCompat = Android.Support.V4.View.ViewCompat;
 
 namespace Xamarin.Forms.Platform.Android.FastRenderers
 {
-	public static class ImageElementManager
-	{
-		public static void Init(IVisualElementRenderer renderer)
-		{
-			renderer.ElementPropertyChanged += OnElementPropertyChanged;
-			renderer.ElementChanged += OnElementChanged;
-			renderer.LayoutChange += OnLayoutChange;
-		}
+    public static class ImageElementManager
+    {
+        public static void Init(IVisualElementRenderer renderer)
+        {
+            renderer.ElementPropertyChanged += OnElementPropertyChanged;
+            renderer.ElementChanged += OnElementChanged;
 
-		static void OnLayoutChange(object sender, global::Android.Views.View.LayoutChangeEventArgs e)
-		{
-			if(sender is IVisualElementRenderer renderer && renderer.View is ImageView imageView)
-				AViewCompat.SetClipBounds(imageView, imageView.GetScaleType() == AScaleType.CenterCrop ? new ARect(0, 0, e.Right - e.Left, e.Bottom - e.Top) : null);
-		}
+            if (renderer is ILayoutChanges layoutChanges)
+                layoutChanges.LayoutChange += OnLayoutChange;
+        }
 
-		public static void Dispose(IVisualElementRenderer renderer)
-		{
-			renderer.ElementPropertyChanged -= OnElementPropertyChanged;
-			renderer.ElementChanged -= OnElementChanged;
-			renderer.LayoutChange -= OnLayoutChange;
+        static void OnLayoutChange(object sender, global::Android.Views.View.LayoutChangeEventArgs e)
+        {
+            if (sender is IVisualElementRenderer renderer && renderer.View is ImageView imageView)
+                AViewCompat.SetClipBounds(imageView, imageView.GetScaleType() == AScaleType.CenterCrop ? new ARect(0, 0, e.Right - e.Left, e.Bottom - e.Top) : null);
+        }
 
-			if (renderer.View is ImageView imageView)
-				imageView.SetImageDrawable(null);
-		}
+        public static void Dispose(IVisualElementRenderer renderer)
+        {
+            renderer.ElementPropertyChanged -= OnElementPropertyChanged;
+            renderer.ElementChanged -= OnElementChanged;
+            if (renderer is ILayoutChanges layoutChanges)
+                layoutChanges.LayoutChange -= OnLayoutChange;
 
-		async static void OnElementChanged(object sender, VisualElementChangedEventArgs e)
-		{
-			var renderer = (sender as IVisualElementRenderer);
-			var view = renderer.View as ImageView;
-			var newImageElementManager = e.NewElement as IImageElement;
-			var oldImageElementManager = e.OldElement as IImageElement;
-			var rendererController = renderer as IImageRendererController;
+            if (renderer is IImageRendererController imageRenderer)
+                imageRenderer.SetFormsAnimationDrawable(null);
+
+            if (renderer.View is ImageView imageView)
+            {
+                imageView.SetImageDrawable(null);
+                imageView.Reset();
+            }
+        }
+
+        async static void OnElementChanged(object sender, VisualElementChangedEventArgs e)
+        {
+            var renderer = (sender as IVisualElementRenderer);
+            var view = renderer.View as ImageView;
+            var newImageElementManager = e.NewElement as IImageElement;
+            var oldImageElementManager = e.OldElement as IImageElement;
+            var rendererController = renderer as IImageRendererController;
+
+			if (rendererController.IsDisposed)
+				return;
 
 			await TryUpdateBitmap(rendererController, view, newImageElementManager, oldImageElementManager);
+			
+			if (rendererController.IsDisposed)
+				return;
+
 			UpdateAspect(rendererController, view, newImageElementManager, oldImageElementManager);
 
-			if (!rendererController.IsDisposed)
-			{
-				ElevationHelper.SetElevation(view, renderer.Element);
-			}
-		}
+			if (rendererController.IsDisposed)
+				return;
 
-		async static void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
+            ElevationHelper.SetElevation(view, renderer.Element);
+        }
+
+        async static void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
 			var renderer = (sender as IVisualElementRenderer);
 			var ImageElementManager = (IImageElement)renderer.Element;
 			var imageController = (IImageController)renderer.Element;
 
-			if (e.PropertyName == Image.SourceProperty.PropertyName ||
-				e.PropertyName == Button.ImageProperty.PropertyName)
+			if (e.IsOneOf(Image.SourceProperty, Button.ImageSourceProperty))
+            {
+                await TryUpdateBitmap(renderer as IImageRendererController, (ImageView)renderer.View, (IImageElement)renderer.Element).ConfigureAwait(false);
+
+            }
+            else if (e.Is(Image.AspectProperty))
+            {
+                UpdateAspect(renderer as IImageRendererController, (ImageView)renderer.View, (IImageElement)renderer.Element);
+            }
+            else if (e.Is(Image.IsAnimationPlayingProperty))
+				await StartStopAnimation(renderer, imageController, ImageElementManager).ConfigureAwait(false);
+		}
+
+		async static Task StartStopAnimation(
+			IVisualElementRenderer renderer,
+			IImageController imageController,
+			IImageElement imageElement)
+		{
+			IImageRendererController imageRendererController = renderer as IImageRendererController;
+			var view = renderer.View as ImageView;
+			if (imageRendererController.IsDisposed || imageElement == null || view == null || view.IsDisposed())
+				return;
+
+			if (imageElement.IsLoading)
+				return;
+
+			if (!(view.Drawable is FormsAnimationDrawable) && imageElement.IsAnimationPlaying)
+				await TryUpdateBitmap(imageRendererController, view, imageElement);
+
+			if (view.Drawable is FormsAnimationDrawable animation)
 			{
-				try
-				{
-					await TryUpdateBitmap(renderer as IImageRendererController, (ImageView)renderer.View, (IImageElement)renderer.Element).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					Log.Warning(renderer.GetType().Name, "Error loading image: {0}", ex);
-				}
-				finally
-				{
-					if(imageController != null)
-						imageController?.SetIsLoading(false);
-				}
-			}
-			else if (e.PropertyName == Image.AspectProperty.PropertyName)
-			{
-				UpdateAspect(renderer as IImageRendererController, (ImageView)renderer.View, (IImageElement)renderer.Element);
+				if (imageElement.IsAnimationPlaying && !animation.IsRunning)
+					animation.Start();
+				else if (!imageElement.IsAnimationPlaying && animation.IsRunning)
+					animation.Stop();
 			}
 		}
 
 
-		async static Task TryUpdateBitmap(IImageRendererController rendererController, ImageView Control, IImageElement newImage, IImageElement previous = null)
-		{
-			if (newImage == null || rendererController.IsDisposed)
+        async static Task TryUpdateBitmap(IImageRendererController rendererController, ImageView Control, IImageElement newImage, IImageElement previous = null)
+        {
+            if (newImage == null || rendererController.IsDisposed)
+            {
+                return;
+            }
+
+			if (Control.Drawable is FormsAnimationDrawable currentAnimation)
 			{
-				return;
+				rendererController.SetFormsAnimationDrawable(currentAnimation);
+				currentAnimation.Stop();
+			}
+			else
+			{
+				rendererController.SetFormsAnimationDrawable(null);
 			}
 
-			await Control.UpdateBitmap(newImage, previous).ConfigureAwait(false);
+            try
+            {
+                await Control.UpdateBitmap(newImage, previous).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(nameof(ImageElementManager), "Error loading image: {0}", ex);
+            }
+            finally
+            {
+                if (newImage is IImageController imageController)
+                    imageController.SetIsLoading(false);
+            }
+
+			if (rendererController.IsDisposed)
+				return;
+			
+			if (Control.Drawable is FormsAnimationDrawable updatedAnimation)
+			{
+				rendererController.SetFormsAnimationDrawable(updatedAnimation);
+
+				if (newImage.IsAnimationPlaying)
+					updatedAnimation.Start();
+			}
+		}
+
+		internal static void OnAnimationStopped(IElementController image, FormsAnimationDrawableStateEventArgs e)
+		{
+			if (image != null && e.Finished)
+				image.SetValueFromRenderer(Image.IsAnimationPlayingProperty, false);
 		}
 
 		static void UpdateAspect(IImageRendererController rendererController, ImageView Control, IImageElement newImage, IImageElement previous = null)
-		{
-			if (newImage == null || rendererController.IsDisposed)
-			{
-				return;
-			}
+        {
+            if (newImage == null || rendererController.IsDisposed)
+            {
+                return;
+            }
 
-			ImageView.ScaleType type = newImage.Aspect.ToScaleType();
-			Control.SetScaleType(type);
-		}
-	}
+            ImageView.ScaleType type = newImage.Aspect.ToScaleType();
+            Control.SetScaleType(type);
+        }
+    }
 }

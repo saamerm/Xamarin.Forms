@@ -87,6 +87,10 @@
 	{
 	}
 
+	internal class _RefreshViewRenderer
+	{
+	}
+
 	internal class _ScrollViewRenderer
 	{
 	}
@@ -96,6 +100,14 @@
 	}
 
 	internal class _FrameRenderer
+	{
+	}
+
+	internal class _CheckBoxRenderer
+	{
+	}
+
+	internal class _IndicatorViewRenderer
 	{
 	}
 
@@ -120,6 +132,10 @@
 	}
 
 	internal class _MasterDetailPageRenderer
+	{
+	}
+
+	internal class _SwipeViewRenderer
 	{
 	}
 }

@@ -13,7 +13,7 @@ using AView = Android.Views.View;
 
 namespace Xamarin.Forms.Platform.Android.FastRenderers
 {
-	internal sealed class ButtonRenderer : AppCompatButton,
+	public class ButtonRenderer : AppCompatButton,
 		IBorderVisualElementRenderer, IButtonLayoutRenderer, IVisualElementRenderer, IViewRenderer, ITabStop,
 		AView.IOnAttachStateChangeListener, AView.IOnFocusChangeListener, AView.IOnClickListener, AView.IOnTouchListener
 	{
@@ -29,7 +29,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		BorderBackgroundManager _backgroundTracker;
 		ButtonLayoutManager _buttonLayoutManager;
 		IPlatformElementConfiguration<PlatformConfiguration.Android, Button> _platformElementConfiguration;
-		private Button _button;
+		Button _button;
 
 		public event EventHandler<VisualElementChangedEventArgs> ElementChanged;
 		public event EventHandler<PropertyChangedEventArgs> ElementPropertyChanged;
@@ -46,7 +46,12 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			Initialize();
 		}
 
-		public VisualElement Element => Button;
+		protected Button Element => Button;
+		protected AppCompatButton Control => this;
+
+		VisualElement IBorderVisualElementRenderer.Element => Element;
+
+		VisualElement IVisualElementRenderer.Element => Element;
 		AView IVisualElementRenderer.View => this;
 		ViewGroup IVisualElementRenderer.ViewGroup => null;
 		VisualElementTracker IVisualElementRenderer.Tracker => _tracker;
@@ -77,11 +82,26 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		{
 			((IElementController)Button).SetValueFromRenderer(VisualElement.IsFocusedPropertyKey, hasFocus);
 		}
-
+	
 		SizeRequest IVisualElementRenderer.GetDesiredSize(int widthConstraint, int heightConstraint)
 		{
-			Measure(widthConstraint, heightConstraint);
-			return new SizeRequest(new Size(MeasuredWidth, MeasuredHeight), MinimumSize());
+			if (_isDisposed)
+			{
+				return new SizeRequest();
+			}
+
+			var hint = Control.Hint;
+
+			if (!string.IsNullOrWhiteSpace(hint))
+			{
+				Control.Hint = string.Empty;
+			}
+
+			var result  = _buttonLayoutManager.GetDesiredSize(widthConstraint, heightConstraint);
+
+			Control.Hint = hint;
+
+			return result;
 		}
 
 		void IVisualElementRenderer.SetElement(VisualElement element)
@@ -100,24 +120,6 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			Button = (Button)element;
 
 			Performance.Start(out string reference);
-
-			if (oldElement != null)
-			{
-				oldElement.PropertyChanged -= OnElementPropertyChanged;
-			}
-
-
-			element.PropertyChanged += OnElementPropertyChanged;
-
-			if (_tracker == null)
-			{
-				// Can't set up the tracker in the constructor because it access the Element (for now)
-				SetTracker(new VisualElementTracker(this));
-			}
-			if (_visualElementRenderer == null)
-			{
-				_visualElementRenderer = new VisualElementRenderer(this);
-			}
 
 			OnElementChanged(new ElementChangedEventArgs<Button>(oldElement as Button, Button));
 
@@ -143,6 +145,15 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			ViewRenderer.MeasureExactly(this, Element, Context);
 		}
 
+
+		public override void Draw(Canvas canvas)
+		{
+			if (_backgroundTracker?.BackgroundDrawable != null)
+				_backgroundTracker.BackgroundDrawable.DrawCircle(canvas, canvas.Width, canvas.Height, base.Draw);
+			else
+				base.Draw(canvas);
+		}
+
 		protected override void Dispose(bool disposing)
 		{
 			if (_isDisposed)
@@ -157,6 +168,12 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 				SetOnClickListener(null);
 				SetOnTouchListener(null);
 				RemoveOnAttachStateChangeListener(this);
+				OnFocusChangeListener = null;
+
+				if (Element != null)
+				{
+					Element.PropertyChanged -= OnElementPropertyChanged;
+				}
 
 				_automationPropertiesProvider?.Dispose();
 				_tracker?.Dispose();
@@ -168,8 +185,6 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 				if (Element != null)
 				{
-					Element.PropertyChanged -= OnElementPropertyChanged;
-
 					if (Platform.GetRenderer(Element) == this)
 						Element.ClearValue(Platform.RendererProperty);
 				}
@@ -186,16 +201,26 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			return base.OnTouchEvent(e);
 		}
 
-		Size MinimumSize()
+		protected virtual void OnElementChanged(ElementChangedEventArgs<Button> e)
 		{
-			return new Size();
-		}
+			ElementChanged?.Invoke(this, new VisualElementChangedEventArgs(e.OldElement, e.NewElement));
+		
+			if (e.OldElement != null)
+			{
+				e.OldElement.PropertyChanged -= OnElementPropertyChanged;
+			}
 
-		void OnElementChanged(ElementChangedEventArgs<Button> e)
-		{
 			if (e.NewElement != null && !_isDisposed)
 			{
 				this.EnsureId();
+
+				if (_tracker == null)
+				{
+					// Can't set up the tracker in the constructor because it access the Element (for now)
+					SetTracker(new VisualElementTracker(this));
+				}
+
+				e.NewElement.PropertyChanged += OnElementPropertyChanged;
 
 				_textColorSwitcher = new Lazy<TextColorSwitcher>(
 					() => new TextColorSwitcher(TextColors, e.NewElement.UseLegacyColorManagement()));
@@ -204,15 +229,14 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 				UpdateTextColor();
 				UpdateInputTransparent();
 				UpdateBackgroundColor();
+				UpdateCharacterSpacing();
 				_buttonLayoutManager?.Update();
 
 				ElevationHelper.SetElevation(this, e.NewElement);
 			}
-
-			ElementChanged?.Invoke(this, new VisualElementChangedEventArgs(e.OldElement, e.NewElement));
 		}
 
-		void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
+		protected virtual void OnElementPropertyChanged(object sender, PropertyChangedEventArgs e)
 		{
 			if (e.PropertyName == Button.TextColorProperty.PropertyName)
 			{
@@ -221,6 +245,10 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			else if (e.PropertyName == Button.FontProperty.PropertyName)
 			{
 				UpdateFont();
+			}
+			else if (e.PropertyName == Button.CharacterSpacingProperty.PropertyName)
+			{
+				UpdateCharacterSpacing();
 			}
 			else if (e.PropertyName == VisualElement.InputTransparentProperty.PropertyName)
 			{
@@ -234,12 +262,6 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		{
 			_buttonLayoutManager?.OnLayout(changed, l, t, r, b);
 			base.OnLayout(changed, l, t, r, b);
-		}
-
-		protected override void OnMeasure(int widthMeasureSpec, int heightMeasureSpec)
-		{
-			_buttonLayoutManager?.Update();
-			base.OnMeasure(widthMeasureSpec, heightMeasureSpec);
 		}
 
 		void SetTracker(VisualElementTracker tracker)
@@ -266,6 +288,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			_automationPropertiesProvider = new AutomationPropertiesProvider(this);
 			_buttonLayoutManager = new ButtonLayoutManager(this);
 			_backgroundTracker = new BorderBackgroundManager(this);
+			_visualElementRenderer = new VisualElementRenderer(this);
 
 			SoundEffectsEnabled = false;
 			SetOnClickListener(this);
@@ -328,6 +351,14 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			_textColorSwitcher.Value.UpdateTextColor(this, Button.TextColor);
 		}
 
+		void UpdateCharacterSpacing()
+		{
+			if (Forms.IsLollipopOrNewer)
+			{
+				LetterSpacing = Button.CharacterSpacing.ToEm();
+			}
+		}
+
 		float IBorderVisualElementRenderer.ShadowRadius => ShadowRadius;
 		float IBorderVisualElementRenderer.ShadowDx => ShadowDx;
 		float IBorderVisualElementRenderer.ShadowDy => ShadowDy;
@@ -345,12 +376,8 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			return _platformElementConfiguration;
 		}
 
-		Button IButtonLayoutRenderer.Element => Button;
 		AppCompatButton IButtonLayoutRenderer.View => this;
-		event EventHandler<VisualElementChangedEventArgs> IButtonLayoutRenderer.ElementChanged
-		{
-			add => ((IVisualElementRenderer)this).ElementChanged += value;
-			remove => ((IVisualElementRenderer)this).ElementChanged -= value;
-		}
+
+		Button IButtonLayoutRenderer.Element => this.Element;
 	}
 }

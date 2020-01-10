@@ -1,8 +1,8 @@
 ---
 name: Bug report
 about: Create a report to help us improve
-title: ''
-labels: 't/bug :bug:'
+title: "[Bug] "
+labels: 's/unverified, t/bug :bug:'
 assignees: ''
 
 ---

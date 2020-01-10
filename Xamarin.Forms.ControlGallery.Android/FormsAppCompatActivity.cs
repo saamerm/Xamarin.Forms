@@ -10,6 +10,7 @@ using Xamarin.Forms.Controls.Issues;
 using Xamarin.Forms.Platform.Android;
 using Xamarin.Forms.Platform.Android.AppLinks;
 using System.Linq;
+using Xamarin.Forms.Internals;
 
 namespace Xamarin.Forms.ControlGallery.Android
 {
@@ -32,6 +33,8 @@ namespace Xamarin.Forms.ControlGallery.Android
 	{
 		protected override void OnCreate(Bundle bundle)
 		{
+			Profile.Start();
+
 			ToolbarResource = Resource.Layout.Toolbar;
 			TabLayoutResource = Resource.Layout.Tabbar;
 
@@ -41,16 +44,15 @@ namespace Xamarin.Forms.ControlGallery.Android
 			base.OnCreate(bundle);
 
 #if TEST_EXPERIMENTAL_RENDERERS
-			// CollectionView lets us test CollectionView stuff until it's officially released
-			Forms.SetFlags("FastRenderers_Experimental"/*, "CollectionView_Experimental", "Visual_Experimental", "Shell_Experimental"*/); 
-#else
 			// Fake_Flag is here so we can test for flag initialization issues
-			// CollectionView lets us test CollectionView stuff until it's officially released
-			Forms.SetFlags("Fake_Flag"/*, "CollectionView_Experimental", "Visual_Experimental", "Shell_Experimental" */); 
+			Forms.SetFlags("Fake_Flag"/*, "CollectionView_Experimental", "Shell_Experimental"*/); 
+#else
+			Forms.SetFlags("UseLegacyRenderers", "SwipeView_Experimental");
 #endif
 			Forms.Init(this, bundle);
 
 			FormsMaps.Init(this, bundle);
+			FormsMaterial.Init(this, bundle);
 			AndroidAppLinks.Init(this);
 			Forms.ViewInitialized += (sender, e) => {
 				//				if (!string.IsNullOrWhiteSpace(e.View.StyleId)) {
@@ -82,6 +84,16 @@ namespace Xamarin.Forms.ControlGallery.Android
 
 			SetUpForceRestartTest();
 
+			// Make the activity accessible to platform unit tests
+			DependencyResolver.ResolveUsing((t) => {
+				if (t == typeof(Context))
+				{
+					return this;
+				}
+
+				return null;
+			});
+
 			LoadApplication(_app);
 			if (Forms.Flags.Contains("FastRenderers_Experimental"))
 			{
@@ -91,7 +103,12 @@ namespace Xamarin.Forms.ControlGallery.Android
 			}
 		}
 
-		
+		protected override void OnResume()
+		{
+			base.OnResume();
+			Profile.Stop();
+		}
+
 		[Export("IsPreAppCompat")]
 		public bool IsPreAppCompat()
 		{

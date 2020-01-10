@@ -5,13 +5,12 @@ using Android.Graphics.Drawables;
 using Android.Support.V4.View;
 using Android.Support.V7.Widget;
 using Android.Views;
-using Xamarin.Forms.Platform.Android.FastRenderers;
 using AColor = Android.Graphics.Color;
 using AView = Android.Views.View;
 
 namespace Xamarin.Forms.Platform.Android.FastRenderers
 {
-	public class FrameRenderer : CardView, IVisualElementRenderer, IEffectControlProvider, IViewRenderer, ITabStop
+	public class FrameRenderer : CardView, IVisualElementRenderer, IViewRenderer, ITabStop
 	{
 		float _defaultElevation = -1f;
 		float _defaultCornerRadius = -1f;
@@ -23,9 +22,8 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 		VisualElementPackager _visualElementPackager;
 		VisualElementTracker _visualElementTracker;
+		VisualElementRenderer _visualElementRenderer;
 
-		readonly GestureManager _gestureManager;
-		readonly EffectControlProvider _effectControlProvider;
 		readonly MotionEventHelper _motionEventHelper = new MotionEventHelper();
 
 		public event EventHandler<VisualElementChangedEventArgs> ElementChanged;
@@ -33,16 +31,14 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 		public FrameRenderer(Context context) : base(context)
 		{
-			_gestureManager = new GestureManager(this);
-			_effectControlProvider = new EffectControlProvider(this);
+			_visualElementRenderer = new VisualElementRenderer(this);
 		}
 
 		[Obsolete("This constructor is obsolete as of version 2.5. Please use FrameRenderer(Context) instead.")]
 		[EditorBrowsable(EditorBrowsableState.Never)]
 		public FrameRenderer() : base(Forms.Context)
 		{
-			_gestureManager = new GestureManager(this);
-			_effectControlProvider = new EffectControlProvider(this);
+			_visualElementRenderer = new VisualElementRenderer(this);
 		}
 
 		protected CardView Control => this;
@@ -104,11 +100,6 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 			tracker?.UpdateLayout();
 		}
 
-		void IEffectControlProvider.RegisterEffect(Effect effect)
-		{
-			_effectControlProvider.RegisterEffect(effect);
-		}
-
 		void IViewRenderer.MeasureExactly()
 		{
 			ViewRenderer.MeasureExactly(this, Element, Context);
@@ -123,7 +114,10 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 			if (disposing)
 			{
-				_gestureManager?.Dispose();
+				if (Element != null)
+				{
+					Element.PropertyChanged -= OnElementPropertyChanged;
+				}
 
 				if (_visualElementTracker != null)
 				{
@@ -136,28 +130,31 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 					_visualElementPackager.Dispose();
 					_visualElementPackager = null;
 				}
-				
+
 				if (_backgroundDrawable != null)
 				{
 					_backgroundDrawable.Dispose();
 					_backgroundDrawable = null;
 				}
-				
-				int count = ChildCount;
-				for (var i = 0; i < count; i++)
+
+				if (_visualElementRenderer != null)
 				{
-					AView child = GetChildAt(i);
+					_visualElementRenderer.Dispose();
+					_visualElementRenderer = null;
+				}
+
+				while (ChildCount > 0)
+				{
+					AView child = GetChildAt(0);
+					child.RemoveFromParent();
 					child.Dispose();
 				}
 
 				if (Element != null)
 				{
-					Element.PropertyChanged -= OnElementPropertyChanged;
-
 					if (Platform.GetRenderer(Element) == this)
 						Element.ClearValue(Platform.RendererProperty);
 				}
-				
 			}
 
 			base.Dispose(disposing);
@@ -191,6 +188,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 				UpdateBackgroundColor();
 				UpdateCornerRadius();
 				UpdateBorderColor();
+				UpdateClippedToBounds();
 
 				ElevationHelper.SetElevation(this, e.NewElement);
 			}
@@ -214,7 +212,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 
 		public override bool OnTouchEvent(MotionEvent e)
 		{
-			if (_gestureManager.OnTouchEvent(e) || base.OnTouchEvent(e))
+			if (_visualElementRenderer.OnTouchEvent(e) || base.OnTouchEvent(e))
 			{
 				return true;
 			}
@@ -234,13 +232,20 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 				UpdateCornerRadius();
 			else if (e.PropertyName == Frame.BorderColorProperty.PropertyName)
 				UpdateBorderColor();
+			else if (e.Is(Xamarin.Forms.Layout.IsClippedToBoundsProperty))
+				UpdateClippedToBounds();
+		}
+
+		void UpdateClippedToBounds()
+		{
+			this.SetClipToOutline(Element.IsClippedToBounds, Element);
 		}
 
 		void UpdateBackgroundColor()
 		{
 			if (_disposed)
 				return;
-				
+
 			Color bgColor = Element.BackgroundColor;
 			_backgroundDrawable.SetColor(bgColor.IsDefault ? AColor.White : bgColor.ToAndroid());
 		}
@@ -262,7 +267,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		{
 			if (_disposed)
 				return;
-				
+
 			float elevation = _defaultElevation;
 
 			if (elevation == -1f)
@@ -278,7 +283,7 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 		{
 			if (_disposed)
 				return;
-				
+
 			if (_defaultCornerRadius == -1f)
 			{
 				_defaultCornerRadius = Radius;
@@ -292,6 +297,8 @@ namespace Xamarin.Forms.Platform.Android.FastRenderers
 				cornerRadius = Context.ToPixels(cornerRadius);
 
 			_backgroundDrawable.SetCornerRadius(cornerRadius);
+
+			UpdateClippedToBounds();
 		}
 	}
 }
